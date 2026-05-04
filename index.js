@@ -176,7 +176,7 @@ client.once("ready", async () => {
   updateBotPresence();
   joinChannel();
 
-  // Commands will be added in Part 2
+  await registerCommands(commands);
 });
 
 // =========================
