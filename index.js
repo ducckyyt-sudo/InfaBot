@@ -608,5 +608,3 @@ client.on("interactionCreate", async interaction => {
     });
   }
 });
-voiceStateUpdate event
-client.login()
