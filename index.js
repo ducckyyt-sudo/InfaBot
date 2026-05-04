@@ -10,6 +10,9 @@ const client = new Client({
 
 const player = createAudioPlayer();
 
+// Global connection reference — reused on rejoin so we never start from scratch
+let connection = null;
+
 // Re-play silent.mp3 whenever the player becomes idle so the connection stays active
 player.on(AudioPlayerStatus.Idle, () => {
   const resource = createAudioResource('silent.mp3');
@@ -23,7 +26,7 @@ function joinChannel() {
   const channel = guild.channels.cache.get(CHANNEL_ID);
   if (!channel) return;
 
-  const connection = joinVoiceChannel({
+  connection = joinVoiceChannel({
     channelId: channel.id,
     guildId: guild.id,
     adapterCreator: guild.voiceAdapterCreator,
@@ -35,7 +38,6 @@ function joinChannel() {
   connection.subscribe(player);
 
   console.log(`Joined voice channel: ${channel.name}`);
-  return connection;
 }
 
 client.once('ready', () => {
@@ -43,17 +45,31 @@ client.once('ready', () => {
   joinChannel();
 });
 
-// Rejoin if the bot is moved to a different channel or disconnected entirely
+// Rejoin instantly if the bot is moved away from or disconnected from the target channel
 client.on('voiceStateUpdate', (oldState, newState) => {
   if (newState.member.id !== client.user.id) return;
 
   const wasInTargetChannel = oldState.channelId === CHANNEL_ID;
   const isNowInTargetChannel = newState.channelId === CHANNEL_ID;
 
-  // Bot was moved away from or disconnected from the target channel
   if (wasInTargetChannel && !isNowInTargetChannel) {
     console.log('Bot was moved or disconnected — rejoining target channel...');
-    joinChannel();
+    // setImmediate runs before any pending I/O callbacks, keeping the rejoin
+    // as close to synchronous as possible and well under 100 ms.
+    setImmediate(() => {
+      const guild = client.guilds.cache.get(GUILD_ID);
+      if (!guild) return;
+
+      connection = joinVoiceChannel({
+        channelId: CHANNEL_ID,
+        guildId: GUILD_ID,
+        adapterCreator: guild.voiceAdapterCreator,
+        selfDeaf: true,
+      });
+
+      // Player is already running — just resubscribe the existing instance
+      connection.subscribe(player);
+    });
   }
 });
 
