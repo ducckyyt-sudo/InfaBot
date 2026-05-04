@@ -6,7 +6,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
 });
 
-client.once('clientReady', async () => {
+client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
     const guild = client.guilds.cache.get('1424473149138796566');
