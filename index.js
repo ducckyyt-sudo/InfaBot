@@ -1,5 +1,6 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
+const { Readable } = require('stream');
 
 const GUILD_ID = '1424473149138796566';
 const DEFAULT_CHANNEL_ID = '1455378516853129309';
@@ -16,10 +17,32 @@ const player = createAudioPlayer();
 // Global connection reference — reused on rejoin so we never start from scratch
 let connection = null;
 
-// Re-play silent.mp3 whenever the player becomes idle so the connection stays active
+/**
+ * Creates an audio resource from an infinite silent PCM stream.
+ * 48 kHz, stereo, signed 16-bit little-endian — the native format expected
+ * by @discordjs/voice's built-in Opus encoder (no FFmpeg required).
+ * Each 20 ms frame = 960 samples × 2 channels × 2 bytes = 3840 bytes of zeros.
+ */
+function createSilentResource() {
+  const FRAME_SIZE = 3840; // 20 ms of silence at 48 kHz stereo s16le
+  const silentFrame = Buffer.alloc(FRAME_SIZE);
+
+  const stream = new Readable({
+    read() {
+      this.push(silentFrame);
+    },
+  });
+
+  return createAudioResource(stream, {
+    inputType: StreamType.Raw,
+    inlineVolume: false,
+  });
+}
+
+// Re-create a silent resource whenever the player becomes idle so the
+// connection stays active indefinitely — no FFmpeg or external files needed.
 player.on(AudioPlayerStatus.Idle, () => {
-  const resource = createAudioResource('silent.mp3');
-  player.play(resource);
+  player.play(createSilentResource());
 });
 
 function joinChannel(channelId = targetChannelId) {
@@ -36,8 +59,7 @@ function joinChannel(channelId = targetChannelId) {
     selfDeaf: true,
   });
 
-  const resource = createAudioResource('silent.mp3');
-  player.play(resource);
+  player.play(createSilentResource());
   connection.subscribe(player);
 
   console.log(`Joined voice channel: ${channel.name}`);
