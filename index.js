@@ -608,6 +608,5 @@ client.on("interactionCreate", async interaction => {
     });
   }
 });
-READY event
 voiceStateUpdate event
 client.login()
