@@ -1,5 +1,5 @@
 // =========================
-// CORE BOT SYSTEM
+// FULL SINGLE-FILE DISCORD BOT
 // =========================
 
 const {
@@ -7,7 +7,6 @@ const {
   GatewayIntentBits,
   REST,
   Routes,
-  PermissionFlagsBits,
   ChannelType
 } = require("discord.js");
 
@@ -31,7 +30,6 @@ const GUILD_ID = "1424473149138796566";
 const DEFAULT_CHANNEL_ID = "1455378516853129309";
 const EMBED_COLOR = 0xA52A2A;
 
-// Mutable
 let targetChannelId = DEFAULT_CHANNEL_ID;
 let stayLocked = true;
 let connection = null;
@@ -60,7 +58,7 @@ function updateBotPresence() {
       {
         name: "Competing in Xess",
         state: "Competitive Mode",
-        type: 5, // Competing
+        type: 5,
         assets: {
           large_image: "screenshot_2026-05-03_201359",
           large_text: "EVENING",
@@ -74,8 +72,6 @@ function updateBotPresence() {
       }
     ]
   });
-
-  console.log("Static rich presence applied.");
 }
 
 // =========================
@@ -107,17 +103,12 @@ player.on(AudioPlayerStatus.Idle, () => {
 
 function monitorConnection(conn) {
   conn.on(VoiceConnectionStatus.Disconnected, async () => {
-    console.log("Voice connection lost — attempting recovery...");
-
     try {
       await entersState(conn, VoiceConnectionStatus.Signalling, 5000);
-      console.log("Reconnected via signalling.");
     } catch {
       try {
         await entersState(conn, VoiceConnectionStatus.Connecting, 5000);
-        console.log("Reconnected via connecting.");
       } catch {
-        console.log("Reconnection failed — destroying and rejoining.");
         conn.destroy();
         joinChannel(targetChannelId);
       }
@@ -143,73 +134,13 @@ function joinChannel(channelId = targetChannelId) {
 
   player.play(createSilentResource());
   connection.subscribe(player);
-
-  console.log(`Joined voice channel: ${channel.name}`);
 }
-
-// =========================
-// COMMAND REGISTRATION
-// =========================
-
-async function registerCommands(commands) {
-  const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
-
-  try {
-    await rest.put(
-      Routes.applicationGuildCommands(client.user.id, GUILD_ID),
-      { body: commands }
-    );
-
-    console.log("Slash commands registered.");
-  } catch (err) {
-    console.error("Failed to register commands:", err);
-  }
-}
-
-// =========================
-// READY EVENT
-// =========================
-
-client.once("ready", async () => {
-  console.log(`Logged in as ${client.user.tag}`);
-
-  updateBotPresence();
-  joinChannel();
-
-  await registerCommands(commands);
-});
-
-// =========================
-// AUTO-REJOIN IF MOVED
-// =========================
-
-client.on("voiceStateUpdate", (oldState, newState) => {
-  if (newState.member.id !== client.user.id) return;
-
-  const wasInTarget = oldState.channelId === targetChannelId;
-  const nowInTarget = newState.channelId === targetChannelId;
-
-  if (stayLocked && wasInTarget && !nowInTarget) {
-    console.log("Bot was moved — rejoining target channel...");
-    setImmediate(() => joinChannel(targetChannelId));
-  }
-});
-
-// =========================
-// LOGIN
-// =========================
-
-client.login(process.env.DISCORD_TOKEN);
-
-client.once("ready", async () => {
 
 // =========================
 // SLASH COMMAND DEFINITIONS
 // =========================
 
 const commands = [
-
-  // Voice Commands
   {
     name: "join",
     description: "Make the bot join a voice channel",
@@ -217,34 +148,17 @@ const commands = [
       {
         name: "channel",
         description: "The voice channel to join",
-        type: 7, // CHANNEL
-        channel_types: [2], // VOICE
+        type: 7,
+        channel_types: [2],
         required: true
       }
     ]
   },
-  {
-    name: "leave",
-    description: "Disconnect the bot from voice"
-  },
-  {
-    name: "stay-on",
-    description: "Enable voice channel lock"
-  },
-  {
-    name: "stay-off",
-    description: "Disable voice channel lock"
-  },
-  {
-    name: "status",
-    description: "Show the bot's current voice status"
-  },
-
-  // Utility
-  {
-    name: "ping",
-    description: "Check bot latency"
-  },
+  { name: "leave", description: "Disconnect the bot from voice" },
+  { name: "stay-on", description: "Enable voice channel lock" },
+  { name: "stay-off", description: "Disable voice channel lock" },
+  { name: "status", description: "Show the bot's current voice status" },
+  { name: "ping", description: "Check bot latency" },
   {
     name: "set-default-vc",
     description: "Set the default voice channel",
@@ -258,18 +172,11 @@ const commands = [
       }
     ]
   },
-
-  // Messaging
   {
     name: "say",
     description: "Make the bot send a message",
     options: [
-      {
-        name: "text",
-        description: "The message to send",
-        type: 3,
-        required: true
-      }
+      { name: "text", type: 3, description: "The message to send", required: true }
     ]
   },
   {
@@ -283,26 +190,14 @@ const commands = [
       { name: "image", type: 3, description: "Image URL", required: false }
     ]
   },
-
-  // Info
   {
     name: "userinfo",
     description: "Show information about a user",
     options: [
-      {
-        name: "user",
-        description: "The user to inspect",
-        type: 6,
-        required: false
-      }
+      { name: "user", type: 6, description: "User to inspect", required: false }
     ]
   },
-  {
-    name: "serverinfo",
-    description: "Show information about the server"
-  },
-
-  // Moderation
+  { name: "serverinfo", description: "Show information about the server" },
   {
     name: "kick",
     description: "Kick a user",
@@ -332,9 +227,6 @@ const commands = [
     ]
   }
 ];
-
-client.on("interactionCreate", async interaction => {
-
 // =========================
 // COMMAND HANDLERS
 // =========================
@@ -344,7 +236,6 @@ client.on("interactionCreate", async interaction => {
 
   const { commandName } = interaction;
 
-  // Helper: Create embed
   const makeEmbed = (title, description) => ({
     color: EMBED_COLOR,
     title,
@@ -593,19 +484,53 @@ client.on("interactionCreate", async interaction => {
     const reason = interaction.options.getString("reason") || "No reason provided";
 
     const member = interaction.guild.members.cache.get(user.id);
-
     const ms = minutes * 60 * 1000;
 
     await member.timeout(ms, reason);
 
     return interaction.reply({
       embeds: [
-        makeEmbed(
-          "User Timed Out",
-          `**${user.tag}** was timed out for **${minutes} minutes**.\nReason: **${reason}**`
-          client.login(process.env.DISCORD_TOKEN);
-        )
+        {
+          color: EMBED_COLOR,
+          title: "User Timed Out",
+          description: `**${user.tag}** was timed out for **${minutes} minutes**.\nReason: **${reason}**`,
+          timestamp: new Date()
+        }
       ]
     });
   }
 });
+
+// =========================
+// READY EVENT
+// =========================
+
+client.once("ready", async () => {
+  console.log(`Logged in as ${client.user.tag}`);
+
+  updateBotPresence();
+  joinChannel();
+
+  await registerCommands(commands);
+});
+
+// =========================
+// AUTO-REJOIN IF MOVED
+// =========================
+
+client.on("voiceStateUpdate", (oldState, newState) => {
+  if (newState.member.id !== client.user.id) return;
+
+  const wasInTarget = oldState.channelId === targetChannelId;
+  const nowInTarget = newState.channelId === targetChannelId;
+
+  if (stayLocked && wasInTarget && !nowInTarget) {
+    setImmediate(() => joinChannel(targetChannelId));
+  }
+});
+
+// =========================
+// LOGIN
+// =========================
+
+client.login(process.env.DISCORD_TOKEN);
