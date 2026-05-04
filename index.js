@@ -1,22 +1,15 @@
 // =========================
-// DISCORD BOT (RAILWAY READY)
+// DISCORD BOT (RAILWAY READY + MUSIC)
 // =========================
 
 const {
   Client,
   GatewayIntentBits,
   REST,
-  Routes,
-  ChannelType
+  Routes
 } = require("discord.js");
 
-const {
-  joinVoiceChannel,
-  createAudioPlayer,
-  AudioPlayerStatus,
-  VoiceConnectionStatus,
-  entersState
-} = require("@discordjs/voice");
+const { Player } = require("discord-player");
 
 // =========================
 // CONFIG
@@ -24,10 +17,6 @@ const {
 
 const GUILD_ID = process.env.GUILD_ID;
 const CLIENT_ID = process.env.CLIENT_ID;
-
-let targetChannelId = null;
-let stayLocked = true;
-let connection = null;
 
 // =========================
 // CLIENT
@@ -40,117 +29,68 @@ const client = new Client({
   ]
 });
 
-const player = createAudioPlayer();
+// MUSIC PLAYER
+const player = new Player(client);
 
 // =========================
-// PRESENCE
-// =========================
-
-function updateBotPresence() {
-  if (!client.user) return;
-
-  client.user.setPresence({
-    status: "online",
-    activities: [
-      {
-        name: "Competing in Xess",
-        type: 0
-      }
-    ]
-  });
-}
-
-// =========================
-// COMMANDS
+// COMMANDS (UPDATED)
 // =========================
 
 const commands = [
   {
-    name: "join",
-    description: "Join a voice channel",
+    name: "play",
+    description: "Play music from YouTube / Spotify / SoundCloud",
     options: [
       {
-        name: "channel",
-        type: 7,
-        description: "Voice channel",
-        required: true,
-        channel_types: [2]
+        name: "query",
+        type: 3,
+        description: "Song name or link",
+        required: true
       }
     ]
   },
-  { name: "leave", description: "Leave VC" },
-  { name: "ping", description: "Check latency" },
-  { name: "status", description: "Bot status" }
+  { name: "skip", description: "Skip song" },
+  { name: "pause", description: "Pause music" },
+  { name: "resume", description: "Resume music" },
+  { name: "stop", description: "Stop music" },
+  { name: "queue", description: "Show queue" },
+  {
+    name: "volume",
+    description: "Set volume",
+    options: [
+      {
+        name: "amount",
+        type: 4,
+        required: true
+      }
+    ]
+  },
+  { name: "loop", description: "Toggle loop" },
+  { name: "ping", description: "Check bot latency" }
 ];
 
 // =========================
-// REGISTER COMMANDS
+// REGISTER COMMANDS (FIXED)
 // =========================
 
 async function registerCommands() {
-  if (!CLIENT_ID || !GUILD_ID) {
-    console.log("❌ Missing CLIENT_ID or GUILD_ID");
-    return;
-  }
-
   const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
 
-  try {
-    console.log("Registering commands...");
+  console.log("🧹 Clearing old commands...");
 
-    await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: commands }
-    );
+  await rest.put(
+    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+    { body: [] }
+  );
 
-    console.log("✅ Commands registered.");
-  } catch (err) {
-    console.error("❌ Command registration failed:", err);
-  }
-}
+  console.log("📦 Registering new commands...");
 
-// =========================
-// VOICE CONNECTION
-// =========================
+  await rest.put(
+    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+    { body: commands }
+  );
 
-function joinChannel(channelId) {
-  console.log("Trying to join:", channelId);
-
-  const guild = client.guilds.cache.get(GUILD_ID);
-  if (!guild) {
-    console.log("❌ Guild not found");
-    return;
-  }
-
-  const channel = guild.channels.cache.get(channelId);
-  if (!channel || channel.type !== ChannelType.GuildVoice) {
-    console.log("❌ Invalid voice channel");
-    return;
-  }
-
-  connection = joinVoiceChannel({
-    channelId: channel.id,
-    guildId: guild.id,
-    adapterCreator: guild.voiceAdapterCreator,
-    selfDeaf: true
-  });
-
-  targetChannelId = channelId;
-
-  connection.on("stateChange", (oldState, newState) => {
-    console.log(`Connection: ${oldState.status} -> ${newState.status}`);
-  });
-
-  connection.on(VoiceConnectionStatus.Disconnected, async () => {
-    try {
-      await entersState(connection, VoiceConnectionStatus.Signalling, 5000);
-    } catch {
-      console.log("Reconnecting...");
-      if (stayLocked && targetChannelId) {
-        setTimeout(() => joinChannel(targetChannelId), 3000);
-      }
-    }
-  });
+  console.log("✅ Commands updated.");
 }
 
 // =========================
@@ -160,77 +100,111 @@ function joinChannel(channelId) {
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  const { commandName } = interaction;
+  const guildId = interaction.guildId;
 
-  if (commandName === "join") {
-    const channel = interaction.options.getChannel("channel");
+  // 🎵 PLAY
+  if (interaction.commandName === "play") {
+    const query = interaction.options.getString("query");
+    const channel = interaction.member.voice.channel;
 
-    if (!channel || channel.type !== ChannelType.GuildVoice) {
-      return interaction.reply({ content: "Not a voice channel.", ephemeral: true });
+    if (!channel) {
+      return interaction.reply("❌ Join a voice channel first.");
     }
 
-    joinChannel(channel.id);
-    return interaction.reply(`Joined ${channel.name}`);
+    await interaction.deferReply();
+
+    try {
+      const { track } = await player.play(channel, query, {
+        nodeOptions: {
+          metadata: interaction
+        }
+      });
+
+      return interaction.followUp(`▶️ Playing: **${track.title}**`);
+    } catch (err) {
+      console.error(err);
+      return interaction.followUp("❌ Could not play that.");
+    }
   }
 
-  if (commandName === "leave") {
-    stayLocked = false;
+  // ⏭ SKIP
+  if (interaction.commandName === "skip") {
+    player.nodes.get(guildId)?.node.skip();
+    return interaction.reply("⏭ Skipped");
+  }
 
-    if (connection) {
-      connection.destroy();
-      connection = null;
+  // ⏸ PAUSE
+  if (interaction.commandName === "pause") {
+    player.nodes.get(guildId)?.node.pause();
+    return interaction.reply("⏸ Paused");
+  }
+
+  // ▶ RESUME
+  if (interaction.commandName === "resume") {
+    player.nodes.get(guildId)?.node.resume();
+    return interaction.reply("▶ Resumed");
+  }
+
+  // ⏹ STOP
+  if (interaction.commandName === "stop") {
+    player.nodes.get(guildId)?.node.stop();
+    return interaction.reply("⏹ Stopped");
+  }
+
+  // 📜 QUEUE
+  if (interaction.commandName === "queue") {
+    const queue = player.nodes.get(guildId);
+    if (!queue || !queue.currentTrack) {
+      return interaction.reply("Queue is empty.");
     }
 
-    return interaction.reply("Left voice channel.");
+    return interaction.reply(`🎵 Now playing: ${queue.currentTrack.title}`);
   }
 
-  if (commandName === "ping") {
+  // 🔊 VOLUME
+  if (interaction.commandName === "volume") {
+    const vol = interaction.options.getInteger("amount");
+    const queue = player.nodes.get(guildId);
+
+    if (!queue) return interaction.reply("No active queue.");
+
+    queue.node.setVolume(vol);
+    return interaction.reply(`🔊 Volume: ${vol}`);
+  }
+
+  // 🔁 LOOP
+  if (interaction.commandName === "loop") {
+    const queue = player.nodes.get(guildId);
+
+    if (!queue) return interaction.reply("No active queue.");
+
+    const mode = queue.repeatMode === 0 ? 1 : 0;
+    queue.setRepeatMode(mode);
+
+    return interaction.reply(mode ? "🔁 Loop ON" : "➡ Loop OFF");
+  }
+
+  // 🏓 PING
+  if (interaction.commandName === "ping") {
     return interaction.reply(`Ping: ${client.ws.ping}ms`);
-  }
-
-  if (commandName === "status") {
-    return interaction.reply(
-      `VC: ${targetChannelId ? "Connected" : "Not connected"} | Lock: ${stayLocked}`
-    );
   }
 });
 
 // =========================
-// READY EVENT
+// READY
 // =========================
 
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
-
-  updateBotPresence();
-
   await registerCommands();
-
-  if (targetChannelId) joinChannel(targetChannelId);
 });
 
 // =========================
-// LOGIN SAFETY
+// SAFETY
 // =========================
 
-if (!process.env.DISCORD_TOKEN) {
-  throw new Error("Missing DISCORD_TOKEN in environment variables");
-}
-
-if (!process.env.CLIENT_ID) {
-  throw new Error("Missing CLIENT_ID in environment variables");
-}
-
-if (!process.env.GUILD_ID) {
-  throw new Error("Missing GUILD_ID in environment variables");
-}
+if (!process.env.DISCORD_TOKEN) throw new Error("Missing DISCORD_TOKEN");
+if (!process.env.CLIENT_ID) throw new Error("Missing CLIENT_ID");
+if (!process.env.GUILD_ID) throw new Error("Missing GUILD_ID");
 
 client.login(process.env.DISCORD_TOKEN);
-
-// =========================
-// HEARTBEAT
-// =========================
-
-setInterval(() => {
-  console.log("Bot alive | Ping:", client.ws.ping);
-}, 300000);
