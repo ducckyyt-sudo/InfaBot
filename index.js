@@ -534,3 +534,5 @@ client.on("voiceStateUpdate", (oldState, newState) => {
 // =========================
 
 client.login(process.env.DISCORD_TOKEN);
+
+npm install opusscript
