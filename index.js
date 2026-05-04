@@ -27,4 +27,4 @@ client.once('clientReady', async () => {
   connection.subscribe(player);
 });
 
-client.login('MTUwMDY1ODgwMDcyMDM1MTM0Mw.GZhY4V.MEH6hsHwKX_o8zepfAAMo9sxG7wisMZiyzRtSQ');
+client.login(process.env.DISCORD_TOKEN);
