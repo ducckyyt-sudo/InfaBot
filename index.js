@@ -603,6 +603,7 @@ client.on("interactionCreate", async interaction => {
         makeEmbed(
           "User Timed Out",
           `**${user.tag}** was timed out for **${minutes} minutes**.\nReason: **${reason}**`
+          client.login(process.env.DISCORD_TOKEN);
         )
       ]
     });
