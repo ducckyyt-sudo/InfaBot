@@ -1,12 +1,30 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
+const {
+  Client,
+  GatewayIntentBits,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  ChannelType
+} = require('discord.js');
+
+const {
+  joinVoiceChannel,
+  createAudioPlayer,
+  createAudioResource,
+  AudioPlayerStatus,
+  StreamType,
+  VoiceConnectionStatus,
+  entersState
+} = require('@discordjs/voice');
+
 const { Readable } = require('stream');
 
 const GUILD_ID = '1424473149138796566';
 const DEFAULT_CHANNEL_ID = '1455378516853129309';
 
-// Mutable — updated at runtime via /switch-vc
 let targetChannelId = DEFAULT_CHANNEL_ID;
+let connection = null;
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
@@ -14,37 +32,50 @@ const client = new Client({
 
 const player = createAudioPlayer();
 
-// Global connection reference — reused on rejoin so we never start from scratch
-let connection = null;
-
 /**
- * Creates an audio resource from an infinite silent PCM stream.
- * 48 kHz, stereo, signed 16-bit little-endian — the native format expected
- * by @discordjs/voice's built-in Opus encoder (no FFmpeg required).
- * Each 20 ms frame = 960 samples × 2 channels × 2 bytes = 3840 bytes of zeros.
+ * Proper 20ms-timed silent PCM stream.
  */
 function createSilentResource() {
-  const FRAME_SIZE = 3840; // 20 ms of silence at 48 kHz stereo s16le
+  const FRAME_SIZE = 3840;
   const silentFrame = Buffer.alloc(FRAME_SIZE);
 
   const stream = new Readable({
     read() {
-      this.push(silentFrame);
-    },
+      setTimeout(() => this.push(silentFrame), 20);
+    }
   });
 
   return createAudioResource(stream, {
-    inputType: StreamType.Raw,
-    inlineVolume: false,
+    inputType: StreamType.Raw
   });
 }
 
-// Re-create a silent resource whenever the player becomes idle so the
-// connection stays active indefinitely — no FFmpeg or external files needed.
-player.on(AudioPlayerStatus.Idle, () => {
-  player.play(createSilentResource());
-});
+/**
+ * Monitor connection and auto-recover from disconnects.
+ */
+function monitorConnection(conn) {
+  conn.on(VoiceConnectionStatus.Disconnected, async () => {
+    console.log('Voice connection lost — attempting recovery...');
 
+    try {
+      await entersState(conn, VoiceConnectionStatus.Signalling, 5_000);
+      console.log('Reconnected via signalling.');
+    } catch {
+      try {
+        await entersState(conn, VoiceConnectionStatus.Connecting, 5_000);
+        console.log('Reconnected via connecting.');
+      } catch {
+        console.log('Reconnection failed — destroying and rejoining.');
+        conn.destroy();
+        joinChannel(targetChannelId);
+      }
+    }
+  });
+}
+
+/**
+ * Join a voice channel and keep the connection stable.
+ */
 function joinChannel(channelId = targetChannelId) {
   const guild = client.guilds.cache.get(GUILD_ID);
   if (!guild) return;
@@ -56,8 +87,10 @@ function joinChannel(channelId = targetChannelId) {
     channelId: channel.id,
     guildId: guild.id,
     adapterCreator: guild.voiceAdapterCreator,
-    selfDeaf: true,
+    selfDeaf: true
   });
+
+  monitorConnection(connection);
 
   player.play(createSilentResource());
   connection.subscribe(player);
@@ -65,7 +98,9 @@ function joinChannel(channelId = targetChannelId) {
   console.log(`Joined voice channel: ${channel.name}`);
 }
 
-// Register the /switch-vc slash command with Discord
+/**
+ * Register slash commands.
+ */
 async function registerCommands() {
   const command = new SlashCommandBuilder()
     .setName('switch-vc')
@@ -83,10 +118,11 @@ async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
   try {
-    await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), {
-      body: [command],
-    });
-    console.log('Registered /switch-vc slash command.');
+    await rest.put(
+      Routes.applicationGuildCommands(client.user.id, GUILD_ID),
+      { body: [command] }
+    );
+    console.log('Registered /switch-vc command.');
   } catch (err) {
     console.error('Failed to register slash command:', err);
   }
@@ -98,70 +134,64 @@ client.once('ready', async () => {
   joinChannel();
 });
 
-// Handle /switch-vc interactions
-client.on('interactionCreate', async (interaction) => {
+/**
+ * Handle /switch-vc
+ */
+client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName !== 'switch-vc') return;
 
-  // Permission check — must be a guild admin or the bot owner
   const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
   const isOwner = interaction.user.id === process.env.BOT_OWNER_ID;
 
   if (!isAdmin && !isOwner) {
     return interaction.reply({
-      content: '❌ You need the **Administrator** permission to use this command.',
-      ephemeral: true,
+      content: '❌ You need **Administrator** permission to use this command.',
+      ephemeral: true
     });
   }
 
   const channel = interaction.options.getChannel('channel');
 
-  // Sanity-check: must be a voice channel in the configured guild
   if (channel.type !== ChannelType.GuildVoice || channel.guildId !== GUILD_ID) {
     return interaction.reply({
       content: '❌ Please select a voice channel from this server.',
-      ephemeral: true,
+      ephemeral: true
     });
   }
 
   targetChannelId = channel.id;
-  console.log(`Target channel updated to: ${channel.name} (${channel.id}) by ${interaction.user.tag}`);
+  console.log(`Target channel updated to: ${channel.name} (${channel.id})`);
 
-  // Move the bot immediately
   joinChannel(targetChannelId);
 
   await interaction.reply({
-    content: `✅ Bot moved to **${channel.name}** and will now stay there.`,
-    ephemeral: false,
+    content: `✅ Bot moved to **${channel.name}** and will stay there.`,
+    ephemeral: false
   });
 });
 
-// Rejoin instantly if the bot is moved away from or disconnected from the target channel
+/**
+ * Rejoin instantly if forcibly moved.
+ */
 client.on('voiceStateUpdate', (oldState, newState) => {
   if (newState.member.id !== client.user.id) return;
 
-  const wasInTargetChannel = oldState.channelId === targetChannelId;
-  const isNowInTargetChannel = newState.channelId === targetChannelId;
+  const wasInTarget = oldState.channelId === targetChannelId;
+  const nowInTarget = newState.channelId === targetChannelId;
 
-  if (wasInTargetChannel && !isNowInTargetChannel) {
-    console.log('Bot was moved or disconnected — rejoining target channel...');
-    // setImmediate runs before any pending I/O callbacks, keeping the rejoin
-    // as close to synchronous as possible and well under 100 ms.
-    setImmediate(() => {
-      const guild = client.guilds.cache.get(GUILD_ID);
-      if (!guild) return;
-
-      connection = joinVoiceChannel({
-        channelId: targetChannelId,
-        guildId: GUILD_ID,
-        adapterCreator: guild.voiceAdapterCreator,
-        selfDeaf: true,
-      });
-
-      // Player is already running — just resubscribe the existing instance
-      connection.subscribe(player);
-    });
+  if (wasInTarget && !nowInTarget) {
+    console.log('Bot was moved — rejoining target channel...');
+    setImmediate(() => joinChannel(targetChannelId));
   }
 });
 
+/**
+ * Player error logging
+ */
+player.on('error', err => {
+  console.error('Audio player error:', err);
+});
+
 client.login(process.env.DISCORD_TOKEN);
+
