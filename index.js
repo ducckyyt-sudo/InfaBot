@@ -1,30 +1,60 @@
 const { Client, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource } = require('@discordjs/voice');
-const fs = require('fs');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
+
+const GUILD_ID = '1424473149138796566';
+const CHANNEL_ID = '1455378516853129309';
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
 });
 
-client.once('ready', async () => {
-  console.log(`Logged in as ${client.user.tag}`);
+const player = createAudioPlayer();
 
-    const guild = client.guilds.cache.get('1424473149138796566');
-    const channel = guild.channels.cache.get('1455378516853129309');
+// Re-play silent.mp3 whenever the player becomes idle so the connection stays active
+player.on(AudioPlayerStatus.Idle, () => {
+  const resource = createAudioResource('silent.mp3');
+  player.play(resource);
+});
+
+function joinChannel() {
+  const guild = client.guilds.cache.get(GUILD_ID);
+  if (!guild) return;
+
+  const channel = guild.channels.cache.get(CHANNEL_ID);
+  if (!channel) return;
 
   const connection = joinVoiceChannel({
     channelId: channel.id,
     guildId: guild.id,
     adapterCreator: guild.voiceAdapterCreator,
+    selfDeaf: true,
   });
 
-  const player = createAudioPlayer();
-
-  // Play a silent audio file (you need to add one)
   const resource = createAudioResource('silent.mp3');
-
   player.play(resource);
   connection.subscribe(player);
+
+  console.log(`Joined voice channel: ${channel.name}`);
+  return connection;
+}
+
+client.once('ready', () => {
+  console.log(`Logged in as ${client.user.tag}`);
+  joinChannel();
+});
+
+// Rejoin if the bot is moved to a different channel or disconnected entirely
+client.on('voiceStateUpdate', (oldState, newState) => {
+  if (newState.member.id !== client.user.id) return;
+
+  const wasInTargetChannel = oldState.channelId === CHANNEL_ID;
+  const isNowInTargetChannel = newState.channelId === CHANNEL_ID;
+
+  // Bot was moved away from or disconnected from the target channel
+  if (wasInTargetChannel && !isNowInTargetChannel) {
+    console.log('Bot was moved or disconnected — rejoining target channel...');
+    joinChannel();
+  }
 });
 
 client.login(process.env.DISCORD_TOKEN);
