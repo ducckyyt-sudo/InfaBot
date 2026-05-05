@@ -1,5 +1,5 @@
 // =========================
-// DISCORD BOT (FIXED VOICE + MUSIC)
+// DISCORD BOT (FIXED AUDIO ENGINE)
 // =========================
 
 const {
@@ -9,8 +9,17 @@ const {
   Routes
 } = require("discord.js");
 
-const { Player, QueryType } = require("discord-player");
-const { joinVoiceChannel, getVoiceConnection } = require("@discordjs/voice");
+const {
+  Player,
+  QueryType
+} = require("discord-player");
+
+const { DefaultExtractors } = require("@discord-player/extractor");
+
+const {
+  joinVoiceChannel,
+  getVoiceConnection
+} = require("@discordjs/voice");
 
 // =========================
 // CONFIG
@@ -31,10 +40,14 @@ const client = new Client({
   ]
 });
 
+// =========================
+// PLAYER (FIXED)
+// =========================
+
 const player = new Player(client);
 
-// IMPORTANT: prevents “stuck speaking”
-player.extractors.loadDefault();
+// 🔥 FIX: proper extractor system (THIS FIXES YOUR ERROR)
+player.extractors.loadMulti(DefaultExtractors);
 
 // =========================
 // COMMANDS
@@ -61,17 +74,7 @@ const commands = [
   { name: "resume", description: "Resume music" },
   { name: "stop", description: "Stop music" },
   { name: "queue", description: "Show queue" },
-  { name: "loop", description: "Toggle loop" },
-
-  {
-    name: "join",
-    description: "Join your voice channel"
-  },
-
-  {
-    name: "leave",
-    description: "Leave voice channel"
-  }
+  { name: "loop", description: "Toggle loop" }
 ];
 
 // =========================
@@ -108,60 +111,28 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // =====================
-  // JOIN (FIXED)
+  // PLAY (FIXED AUDIO PIPELINE)
   // =====================
-  if (interaction.commandName === "join") {
+  if (interaction.commandName === "play") {
+    const query = interaction.options.getString("query");
     const channel = interaction.member.voice.channel;
 
     if (!channel) {
       return interaction.reply("❌ Join a voice channel first.");
     }
 
-    joinVoiceChannel({
-      channelId: channel.id,
-      guildId: interaction.guild.id,
-      adapterCreator: interaction.guild.voiceAdapterCreator,
-      selfDeaf: true,
-      selfMute: false
-    });
-
-    return interaction.reply(`🔊 Joined ${channel.name}`);
-  }
-
-  // =====================
-  // LEAVE (FIXED)
-  // =====================
-  if (interaction.commandName === "leave") {
-    const conn = getVoiceConnection(interaction.guild.id);
-
-    if (!conn) {
-      return interaction.reply("❌ Not in a voice channel.");
-    }
-
-    conn.destroy();
-    return interaction.reply("👋 Left voice channel");
-  }
-
-  // =====================
-  // PLAY (FIXED - NO STUCK SPEAKING)
-  // =====================
-  if (interaction.commandName === "play") {
-    const query = interaction.options.getString("query");
-    const channel = interaction.member.voice.channel;
-
-    if (!channel) return interaction.reply("❌ Join a voice channel first.");
-
     await interaction.deferReply();
 
     try {
       const result = await player.play(channel, query, {
+        requestedBy: interaction.user,
         searchEngine: QueryType.AUTO
       });
 
       return interaction.followUp(`▶️ Playing: **${result.track.title}**`);
     } catch (err) {
-      console.error(err);
-      return interaction.followUp("❌ Failed to play audio.");
+      console.error("PLAY ERROR:", err);
+      return interaction.followUp("❌ Failed to play audio (check Railway logs).");
     }
   }
 
@@ -226,7 +197,7 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // =========================
-// READY
+// READY EVENT
 // =========================
 
 client.once("ready", async () => {
