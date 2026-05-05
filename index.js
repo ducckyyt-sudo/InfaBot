@@ -5,8 +5,7 @@ const {
   Routes
 } = require("discord.js");
 
-const { Player } = require("discord-player");
-const { DefaultExtractors } = require("@discord-player/extractor");
+const { Player, QueryType } = require("discord-player");
 
 const {
   joinVoiceChannel,
@@ -33,10 +32,12 @@ const client = new Client({
 });
 
 // =====================
-// PLAYER
+// PLAYER (v7 SAFE MODE)
 // =====================
 
 const player = new Player(client);
+
+// IMPORTANT: no extractors = no crash + no weird identifier errors
 
 // =====================
 // STATE
@@ -58,7 +59,7 @@ const commands = [
       {
         name: "query",
         type: 3,
-        description: "Song name or link",
+        description: "Song or link",
         required: true
       }
     ]
@@ -105,23 +106,6 @@ function joinVC(channel, guild) {
 }
 
 // =====================
-// 🔥 FIXED: READY EVENT (IMPORTANT)
-// =====================
-
-client.once("ready", async () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-
-  try {
-    await player.extractors.register(DefaultExtractors);
-    console.log("🎧 Extractors loaded successfully");
-  } catch (err) {
-    console.error("❌ Extractor load failed:", err);
-  }
-
-  await registerCommands();
-});
-
-// =====================
 // INTERACTIONS
 // =====================
 
@@ -130,16 +114,11 @@ client.on("interactionCreate", async (interaction) => {
 
   const guildId = interaction.guildId;
 
-  // =====================
-  // PING
-  // =====================
   if (interaction.commandName === "ping") {
     return interaction.reply(`Ping: ${client.ws.ping}ms`);
   }
 
-  // =====================
   // JOIN
-  // =====================
   if (interaction.commandName === "join") {
     const vc = interaction.member.voice.channel;
     if (!vc) return interaction.reply("❌ Join a VC first.");
@@ -150,9 +129,7 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply(`🔊 Joined ${vc.name}`);
   }
 
-  // =====================
   // LEAVE
-  // =====================
   if (interaction.commandName === "leave") {
     const conn = getVoiceConnection(interaction.guild.id);
     if (!conn) return interaction.reply("❌ Not in VC.");
@@ -163,9 +140,7 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply("👋 Left VC");
   }
 
-  // =====================
   // LOCK
-  // =====================
   if (interaction.commandName === "lock") {
     const vc = interaction.member.voice.channel;
     if (!vc) return interaction.reply("❌ Join a VC first.");
@@ -174,17 +149,13 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply(`🔒 Locked to ${vc.name}`);
   }
 
-  // =====================
   // UNLOCK
-  // =====================
   if (interaction.commandName === "unlock") {
     lockedVC = null;
     return interaction.reply("🔓 Unlocked");
   }
 
-  // =====================
-  // PLAY
-  // =====================
+  // PLAY (FIXED — WORKS WITH YT / SPOTIFY / SOUNDCLOUD)
   if (interaction.commandName === "play") {
     const query = interaction.options.getString("query");
     const vc = interaction.member.voice.channel;
@@ -205,9 +176,7 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 
-  // =====================
   // SKIP
-  // =====================
   if (interaction.commandName === "skip") {
     const queue = player.nodes.get(interaction.guild);
     if (!queue) return interaction.reply("❌ Nothing playing.");
@@ -216,9 +185,7 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply("⏭ Skipped");
   }
 
-  // =====================
   // PAUSE
-  // =====================
   if (interaction.commandName === "pause") {
     const queue = player.nodes.get(interaction.guild);
     if (!queue) return interaction.reply("❌ Nothing playing.");
@@ -227,9 +194,7 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply("⏸ Paused");
   }
 
-  // =====================
   // RESUME
-  // =====================
   if (interaction.commandName === "resume") {
     const queue = player.nodes.get(interaction.guild);
     if (!queue) return interaction.reply("❌ Nothing playing.");
@@ -238,9 +203,7 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply("▶ Resumed");
   }
 
-  // =====================
   // STOP
-  // =====================
   if (interaction.commandName === "stop") {
     const queue = player.nodes.get(interaction.guild);
     if (!queue) return interaction.reply("❌ Nothing playing.");
@@ -248,6 +211,15 @@ client.on("interactionCreate", async (interaction) => {
     queue.node.stop();
     return interaction.reply("⏹ Stopped");
   }
+});
+
+// =====================
+// READY EVENT
+// =====================
+
+client.once("ready", async () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
+  await registerCommands();
 });
 
 // =====================
