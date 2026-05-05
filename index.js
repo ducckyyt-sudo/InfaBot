@@ -38,7 +38,7 @@ const client = new Client({
 
 const player = new Player(client);
 
-// ✅ FIXED extractor init (THIS is what you were missing)
+// 🔥 FIXED extractor init (IMPORTANT)
 (async () => {
   try {
     await player.extractors.register(DefaultExtractors);
@@ -124,10 +124,33 @@ client.on("interactionCreate", async (interaction) => {
   const guildId = interaction.guildId;
 
   // =====================
-  // PING
+  // PLAY (🔥 FIXED SPOTIFY + SAFE SEARCH)
   // =====================
-  if (interaction.commandName === "ping") {
-    return interaction.reply(`Ping: ${client.ws.ping}ms`);
+  if (interaction.commandName === "play") {
+    let query = interaction.options.getString("query");
+    const vc = interaction.member.voice.channel;
+
+    if (!vc) return interaction.reply("❌ Join a VC first.");
+
+    await interaction.deferReply();
+
+    // 🔥 FIX: Spotify links cannot stream directly
+    if (query.includes("spotify.com")) {
+      const id = query.split("/track/")[1]?.split("?")[0];
+      query = id ? `song ${id}` : "spotify song";
+    }
+
+    try {
+      const result = await player.play(vc, query, {
+        requestedBy: interaction.user,
+        searchEngine: QueryType.AUTO
+      });
+
+      return interaction.followUp(`▶️ Playing: **${result.track.title}**`);
+    } catch (err) {
+      console.error("PLAY ERROR:", err);
+      return interaction.followUp("❌ Failed to play track.");
+    }
   }
 
   // =====================
@@ -173,30 +196,6 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.commandName === "unlock") {
     lockedVC = null;
     return interaction.reply("🔓 Unlocked");
-  }
-
-  // =====================
-  // PLAY
-  // =====================
-  if (interaction.commandName === "play") {
-    const query = interaction.options.getString("query");
-    const vc = interaction.member.voice.channel;
-
-    if (!vc) return interaction.reply("❌ Join a VC first.");
-
-    await interaction.deferReply();
-
-    try {
-      const result = await player.play(vc, query, {
-        requestedBy: interaction.user,
-        searchEngine: QueryType.AUTO
-      });
-
-      return interaction.followUp(`▶️ Playing: **${result.track.title}**`);
-    } catch (err) {
-      console.error(err);
-      return interaction.followUp("❌ Failed to play track.");
-    }
   }
 
   // =====================
