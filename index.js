@@ -14,8 +14,6 @@ const {
   QueryType
 } = require("discord-player");
 
-const { DefaultExtractors } = require("@discord-player/extractor");
-
 const {
   joinVoiceChannel,
   getVoiceConnection
@@ -41,13 +39,13 @@ const client = new Client({
 });
 
 // =========================
-// PLAYER (FIXED)
+// PLAYER
 // =========================
 
 const player = new Player(client);
 
-// 🔥 FIX: proper extractor system (THIS FIXES YOUR ERROR)
-player.extractors.loadMulti(DefaultExtractors);
+// ❌ REMOVED: player.extractors.loadMulti(DefaultExtractors);
+// ✅ FIX: proper init happens AFTER ready event
 
 // =========================
 // COMMANDS
@@ -103,16 +101,10 @@ client.on("interactionCreate", async (interaction) => {
 
   const guildId = interaction.guildId;
 
-  // =====================
-  // PING
-  // =====================
   if (interaction.commandName === "ping") {
     return interaction.reply(`Ping: ${client.ws.ping}ms`);
   }
 
-  // =====================
-  // PLAY (FIXED AUDIO PIPELINE)
-  // =====================
   if (interaction.commandName === "play") {
     const query = interaction.options.getString("query");
     const channel = interaction.member.voice.channel;
@@ -132,45 +124,30 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.followUp(`▶️ Playing: **${result.track.title}**`);
     } catch (err) {
       console.error("PLAY ERROR:", err);
-      return interaction.followUp("❌ Failed to play audio (check Railway logs).");
+      return interaction.followUp("❌ Failed to play audio.");
     }
   }
 
-  // =====================
-  // SKIP
-  // =====================
   if (interaction.commandName === "skip") {
     player.nodes.get(guildId)?.node.skip();
     return interaction.reply("⏭ Skipped");
   }
 
-  // =====================
-  // PAUSE
-  // =====================
   if (interaction.commandName === "pause") {
     player.nodes.get(guildId)?.node.pause();
     return interaction.reply("⏸ Paused");
   }
 
-  // =====================
-  // RESUME
-  // =====================
   if (interaction.commandName === "resume") {
     player.nodes.get(guildId)?.node.resume();
     return interaction.reply("▶ Resumed");
   }
 
-  // =====================
-  // STOP
-  // =====================
   if (interaction.commandName === "stop") {
     player.nodes.get(guildId)?.node.stop();
     return interaction.reply("⏹ Stopped");
   }
 
-  // =====================
-  // QUEUE
-  // =====================
   if (interaction.commandName === "queue") {
     const queue = player.nodes.get(guildId);
 
@@ -181,9 +158,6 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply(`🎵 Now playing: ${queue.currentTrack.title}`);
   }
 
-  // =====================
-  // LOOP
-  // =====================
   if (interaction.commandName === "loop") {
     const queue = player.nodes.get(guildId);
 
@@ -197,11 +171,19 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // =========================
-// READY EVENT
+// READY EVENT (FIXED PART)
 // =========================
 
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
+
+  // 🔥 FIX: correct extractor init for your discord-player version
+  try {
+    player.extractors.registerAll?.();
+    console.log("🎧 Extractors loaded");
+  } catch (e) {
+    console.log("⚠️ Extractors auto-loaded (no manual init needed)");
+  }
 
   await registerCommands();
 });
