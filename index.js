@@ -5,9 +5,7 @@ const {
   Routes
 } = require("discord.js");
 
-const { Player, QueryType } = require("discord-player");
-const { DefaultExtractors } = require("@discord-player/extractor");
-
+const { Player } = require("discord-player");
 const {
   joinVoiceChannel,
   getVoiceConnection
@@ -33,20 +31,10 @@ const client = new Client({
 });
 
 // =====================
-// PLAYER
+// PLAYER (v7 = NO EXTRACTORS NEEDED)
 // =====================
 
 const player = new Player(client);
-
-// 🔥 FIXED extractor init (IMPORTANT)
-(async () => {
-  try {
-    await player.extractors.register(DefaultExtractors);
-    console.log("🎧 Extractors loaded");
-  } catch (e) {
-    console.log("❌ Extractor error:", e);
-  }
-})();
 
 // =====================
 // STATE
@@ -63,12 +51,12 @@ const commands = [
 
   {
     name: "play",
-    description: "Play music",
+    description: "Play music (YouTube / Spotify / SoundCloud)",
     options: [
       {
         name: "query",
         type: 3,
-        description: "Song or link",
+        description: "Song name or link",
         required: true
       }
     ]
@@ -102,7 +90,7 @@ async function registerCommands() {
 }
 
 // =====================
-// VOICE HELPERS
+// VOICE JOIN
 // =====================
 
 function joinVC(channel, guild) {
@@ -124,33 +112,10 @@ client.on("interactionCreate", async (interaction) => {
   const guildId = interaction.guildId;
 
   // =====================
-  // PLAY (🔥 FIXED SPOTIFY + SAFE SEARCH)
+  // PING
   // =====================
-  if (interaction.commandName === "play") {
-    let query = interaction.options.getString("query");
-    const vc = interaction.member.voice.channel;
-
-    if (!vc) return interaction.reply("❌ Join a VC first.");
-
-    await interaction.deferReply();
-
-    // 🔥 FIX: Spotify links cannot stream directly
-    if (query.includes("spotify.com")) {
-      const id = query.split("/track/")[1]?.split("?")[0];
-      query = id ? `song ${id}` : "spotify song";
-    }
-
-    try {
-      const result = await player.play(vc, query, {
-        requestedBy: interaction.user,
-        searchEngine: QueryType.AUTO
-      });
-
-      return interaction.followUp(`▶️ Playing: **${result.track.title}**`);
-    } catch (err) {
-      console.error("PLAY ERROR:", err);
-      return interaction.followUp("❌ Failed to play track.");
-    }
+  if (interaction.commandName === "ping") {
+    return interaction.reply(`Ping: ${client.ws.ping}ms`);
   }
 
   // =====================
@@ -199,26 +164,57 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // =====================
-  // BASIC CONTROLS
+  // PLAY (v7 STABLE)
   // =====================
+  if (interaction.commandName === "play") {
+    const query = interaction.options.getString("query");
+    const vc = interaction.member.voice.channel;
 
+    if (!vc) return interaction.reply("❌ Join a VC first.");
+
+    await interaction.deferReply();
+
+    try {
+      const result = await player.play(vc, query, {
+        requestedBy: interaction.user
+      });
+
+      return interaction.followUp(`▶️ Playing: **${result.track.title}**`);
+    } catch (err) {
+      console.error("PLAY ERROR:", err);
+      return interaction.followUp("❌ Could not play that track.");
+    }
+  }
+
+  // =====================
+  // SKIP
+  // =====================
   if (interaction.commandName === "skip") {
-    player.nodes.get(guildId)?.node.skip();
+    player.nodes.get(guildId)?.skip();
     return interaction.reply("⏭ Skipped");
   }
 
+  // =====================
+  // PAUSE
+  // =====================
   if (interaction.commandName === "pause") {
-    player.nodes.get(guildId)?.node.pause();
+    player.nodes.get(guildId)?.pause();
     return interaction.reply("⏸ Paused");
   }
 
+  // =====================
+  // RESUME
+  // =====================
   if (interaction.commandName === "resume") {
-    player.nodes.get(guildId)?.node.resume();
+    player.nodes.get(guildId)?.resume();
     return interaction.reply("▶ Resumed");
   }
 
+  // =====================
+  // STOP
+  // =====================
   if (interaction.commandName === "stop") {
-    player.nodes.get(guildId)?.node.stop();
+    player.nodes.get(guildId)?.stop();
     return interaction.reply("⏹ Stopped");
   }
 });
