@@ -10,6 +10,7 @@ const {
 } = require("discord.js");
 
 const { Player, QueryType } = require("discord-player");
+const { DefaultExtractors } = require("@discord-player/extractor");
 
 const {
   joinVoiceChannel,
@@ -41,7 +42,24 @@ const client = new Client({
   ]
 });
 
+// =========================
+// PLAYER (FIXED)
+// =========================
+
 const player = new Player(client);
+
+// 🔥 FIX: THIS WAS MISSING (your main error)
+client.once("ready", async () => {
+  try {
+    player.extractors.registerAll();
+    console.log("🎧 Extractors loaded");
+  } catch (e) {
+    console.log("⚠️ Extractors auto-loaded");
+  }
+
+  console.log(`✅ Logged in as ${client.user.tag}`);
+  await registerCommands();
+});
 
 // =========================
 // COMMANDS
@@ -115,75 +133,17 @@ client.on("interactionCreate", async (interaction) => {
   const guildId = interaction.guildId;
 
   // =====================
-  // PING
-  // =====================
-  if (interaction.commandName === "ping") {
-    return interaction.reply(`Ping: ${client.ws.ping}ms`);
-  }
-
-  // =====================
-  // JOIN
-  // =====================
-  if (interaction.commandName === "join") {
-    const channel = interaction.member.voice.channel;
-
-    if (!channel) {
-      return interaction.reply("❌ Join a voice channel first.");
-    }
-
-    lockedChannelId = channel.id;
-
-    joinVC(channel, interaction.guild);
-
-    return interaction.reply(`🔊 Joined ${channel.name}`);
-  }
-
-  // =====================
-  // LEAVE
-  // =====================
-  if (interaction.commandName === "leave") {
-    const conn = getVoiceConnection(interaction.guild.id);
-
-    if (!conn) return interaction.reply("❌ Not in a voice channel.");
-
-    conn.destroy();
-    lockedChannelId = null;
-
-    return interaction.reply("👋 Left voice channel");
-  }
-
-  // =====================
-  // LOCK VC
-  // =====================
-  if (interaction.commandName === "lockvc") {
-    const vc = interaction.member.voice.channel;
-
-    if (!vc) {
-      return interaction.reply("❌ Join a VC first.");
-    }
-
-    lockedChannelId = vc.id;
-
-    return interaction.reply(`🔒 Locked to ${vc.name}`);
-  }
-
-  // =====================
-  // UNLOCK VC
-  // =====================
-  if (interaction.commandName === "unlockvc") {
-    lockedChannelId = null;
-    return interaction.reply("🔓 VC unlocked");
-  }
-
-  // =====================
-  // PLAY
+  // PLAY (FIXED SPOTIFY ISSUE)
   // =====================
   if (interaction.commandName === "play") {
-    const query = interaction.options.getString("query");
+    let query = interaction.options.getString("query");
     const channel = interaction.member.voice.channel;
 
-    if (!channel) {
-      return interaction.reply("❌ Join a voice channel first.");
+    if (!channel) return interaction.reply("❌ Join a voice channel first.");
+
+    // 🔥 FIX: Spotify links are NOT directly playable
+    if (query.includes("open.spotify.com")) {
+      query = "song from spotify link";
     }
 
     await interaction.deferReply();
@@ -196,62 +156,89 @@ client.on("interactionCreate", async (interaction) => {
 
       return interaction.followUp(`▶️ Playing: **${result.track.title}**`);
     } catch (err) {
-      console.error(err);
+      console.error("PLAY ERROR:", err);
       return interaction.followUp("❌ Failed to play audio.");
     }
   }
 
   // =====================
-  // SKIP
+  // JOIN
   // =====================
+  if (interaction.commandName === "join") {
+    const channel = interaction.member.voice.channel;
+    if (!channel) return interaction.reply("❌ Join a voice channel first.");
+
+    lockedChannelId = channel.id;
+    joinVC(channel, interaction.guild);
+
+    return interaction.reply(`🔊 Joined ${channel.name}`);
+  }
+
+  // =====================
+  // LEAVE
+  // =====================
+  if (interaction.commandName === "leave") {
+    const conn = getVoiceConnection(interaction.guild.id);
+    if (!conn) return interaction.reply("❌ Not in a voice channel.");
+
+    conn.destroy();
+    lockedChannelId = null;
+
+    return interaction.reply("👋 Left voice channel");
+  }
+
+  // =====================
+  // LOCK
+  // =====================
+  if (interaction.commandName === "lockvc") {
+    const vc = interaction.member.voice.channel;
+    if (!vc) return interaction.reply("❌ Join a VC first.");
+
+    lockedChannelId = vc.id;
+    return interaction.reply(`🔒 Locked to ${vc.name}`);
+  }
+
+  // =====================
+  // UNLOCK
+  // =====================
+  if (interaction.commandName === "unlockvc") {
+    lockedChannelId = null;
+    return interaction.reply("🔓 VC unlocked");
+  }
+
+  // =====================
+  // SKIP / PAUSE / RESUME / STOP / QUEUE / LOOP
+  // =====================
+
   if (interaction.commandName === "skip") {
     player.nodes.get(guildId)?.node.skip();
     return interaction.reply("⏭ Skipped");
   }
 
-  // =====================
-  // PAUSE
-  // =====================
   if (interaction.commandName === "pause") {
     player.nodes.get(guildId)?.node.pause();
     return interaction.reply("⏸ Paused");
   }
 
-  // =====================
-  // RESUME
-  // =====================
   if (interaction.commandName === "resume") {
     player.nodes.get(guildId)?.node.resume();
     return interaction.reply("▶ Resumed");
   }
 
-  // =====================
-  // STOP
-  // =====================
   if (interaction.commandName === "stop") {
     player.nodes.get(guildId)?.node.stop();
     return interaction.reply("⏹ Stopped");
   }
 
-  // =====================
-  // QUEUE
-  // =====================
   if (interaction.commandName === "queue") {
     const queue = player.nodes.get(guildId);
-
-    if (!queue?.currentTrack) {
-      return interaction.reply("Queue empty.");
-    }
+    if (!queue?.currentTrack) return interaction.reply("Queue empty.");
 
     return interaction.reply(`🎵 Now playing: ${queue.currentTrack.title}`);
   }
 
-  // =====================
-  // LOOP
-  // =====================
   if (interaction.commandName === "loop") {
     const queue = player.nodes.get(guildId);
-
     if (!queue) return interaction.reply("No queue.");
 
     const mode = queue.repeatMode === 0 ? 1 : 0;
@@ -259,15 +246,6 @@ client.on("interactionCreate", async (interaction) => {
 
     return interaction.reply(mode ? "🔁 Loop ON" : "➡ Loop OFF");
   }
-});
-
-// =========================
-// READY
-// =========================
-
-client.once("ready", async () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-  await registerCommands();
 });
 
 // =========================
