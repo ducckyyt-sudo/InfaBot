@@ -1,5 +1,5 @@
 // =========================
-// DISCORD BOT (RAILWAY SAFE)
+// DISCORD BOT (FIXED VOICE + MUSIC)
 // =========================
 
 const {
@@ -9,12 +9,8 @@ const {
   Routes
 } = require("discord.js");
 
-let Player;
-try {
-  Player = require("discord-player").Player;
-} catch (e) {
-  console.log("⚠️ discord-player not installed yet");
-}
+const { Player, QueryType } = require("discord-player");
+const { joinVoiceChannel, getVoiceConnection } = require("@discordjs/voice");
 
 // =========================
 // CONFIG
@@ -23,13 +19,6 @@ try {
 const GUILD_ID = process.env.GUILD_ID;
 const CLIENT_ID = process.env.CLIENT_ID;
 const TOKEN = process.env.DISCORD_TOKEN;
-
-// =========================
-// VC STATE
-// =========================
-
-let lockedChannelId = null;
-let connection = null;
 
 // =========================
 // CLIENT
@@ -42,7 +31,10 @@ const client = new Client({
   ]
 });
 
-const player = Player ? new Player(client) : null;
+const player = new Player(client);
+
+// IMPORTANT: prevents “stuck speaking”
+player.extractors.loadDefault();
 
 // =========================
 // COMMANDS
@@ -51,10 +43,9 @@ const player = Player ? new Player(client) : null;
 const commands = [
   { name: "ping", description: "Check bot latency" },
 
-  // MUSIC
   {
     name: "play",
-    description: "Play music (YouTube/Spotify/SoundCloud)",
+    description: "Play music",
     options: [
       {
         name: "query",
@@ -64,6 +55,7 @@ const commands = [
       }
     ]
   },
+
   { name: "skip", description: "Skip song" },
   { name: "pause", description: "Pause music" },
   { name: "resume", description: "Resume music" },
@@ -71,23 +63,15 @@ const commands = [
   { name: "queue", description: "Show queue" },
   { name: "loop", description: "Toggle loop" },
 
-  // VC CONTROL
   {
     name: "join",
-    description: "Join a voice channel",
-    options: [
-      {
-        name: "channel",
-        type: 7,
-        description: "Voice channel",
-        required: true,
-        channel_types: [2]
-      }
-    ]
+    description: "Join your voice channel"
   },
-  { name: "leave", description: "Leave voice channel" },
-  { name: "lockvc", description: "Lock bot to current voice channel" },
-  { name: "unlockvc", description: "Unlock voice lock" }
+
+  {
+    name: "leave",
+    description: "Leave voice channel"
+  }
 ];
 
 // =========================
@@ -97,18 +81,14 @@ const commands = [
 async function registerCommands() {
   const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-  try {
-    console.log("📦 Registering commands...");
+  console.log("📦 Registering commands...");
 
-    await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: commands }
-    );
+  await rest.put(
+    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+    { body: commands }
+  );
 
-    console.log("✅ Commands registered.");
-  } catch (err) {
-    console.error(err);
-  }
+  console.log("✅ Commands registered.");
 }
 
 // =========================
@@ -128,75 +108,42 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // =====================
-  // JOIN VC
+  // JOIN (FIXED)
   // =====================
   if (interaction.commandName === "join") {
-    const channel = interaction.options.getChannel("channel");
+    const channel = interaction.member.voice.channel;
 
-    if (!channel || channel.type !== 2) {
-      return interaction.reply("❌ Invalid voice channel.");
+    if (!channel) {
+      return interaction.reply("❌ Join a voice channel first.");
     }
 
-    lockedChannelId = channel.id;
-
-    const { joinVoiceChannel } = require("@discordjs/voice");
-
-    connection = joinVoiceChannel({
+    joinVoiceChannel({
       channelId: channel.id,
       guildId: interaction.guild.id,
-      adapterCreator: interaction.guild.voiceAdapterCreator
+      adapterCreator: interaction.guild.voiceAdapterCreator,
+      selfDeaf: true,
+      selfMute: false
     });
 
     return interaction.reply(`🔊 Joined ${channel.name}`);
   }
 
   // =====================
-  // LEAVE VC
+  // LEAVE (FIXED)
   // =====================
   if (interaction.commandName === "leave") {
-    const { getVoiceConnection } = require("@discordjs/voice");
-
     const conn = getVoiceConnection(interaction.guild.id);
-    if (!conn) return interaction.reply("❌ Not in VC");
+
+    if (!conn) {
+      return interaction.reply("❌ Not in a voice channel.");
+    }
 
     conn.destroy();
-    connection = null;
-
     return interaction.reply("👋 Left voice channel");
   }
 
   // =====================
-  // LOCK VC
-  // =====================
-  if (interaction.commandName === "lockvc") {
-    const vc = interaction.member.voice.channel;
-
-    if (!vc) return interaction.reply("❌ Join a voice channel first.");
-
-    lockedChannelId = vc.id;
-
-    return interaction.reply(`🔒 Locked to ${vc.name}`);
-  }
-
-  // =====================
-  // UNLOCK VC
-  // =====================
-  if (interaction.commandName === "unlockvc") {
-    lockedChannelId = null;
-    return interaction.reply("🔓 Voice lock removed");
-  }
-
-  // =====================
-  // MUSIC GUARD
-  // =====================
-  if (!player) {
-    if (["play","skip","pause","resume","stop","queue","loop"].includes(interaction.commandName)) {
-      return interaction.reply("❌ Music system not installed.");
-    }
-  }
-
-  // =====================
-  // PLAY
+  // PLAY (FIXED - NO STUCK SPEAKING)
   // =====================
   if (interaction.commandName === "play") {
     const query = interaction.options.getString("query");
@@ -206,8 +153,16 @@ client.on("interactionCreate", async (interaction) => {
 
     await interaction.deferReply();
 
-    const { track } = await player.play(channel, query);
-    return interaction.followUp(`▶️ Playing: ${track.title}`);
+    try {
+      const result = await player.play(channel, query, {
+        searchEngine: QueryType.AUTO
+      });
+
+      return interaction.followUp(`▶️ Playing: **${result.track.title}**`);
+    } catch (err) {
+      console.error(err);
+      return interaction.followUp("❌ Failed to play audio.");
+    }
   }
 
   // =====================
@@ -247,9 +202,12 @@ client.on("interactionCreate", async (interaction) => {
   // =====================
   if (interaction.commandName === "queue") {
     const queue = player.nodes.get(guildId);
-    if (!queue?.currentTrack) return interaction.reply("Queue empty");
 
-    return interaction.reply(`🎵 Now: ${queue.currentTrack.title}`);
+    if (!queue?.currentTrack) {
+      return interaction.reply("Queue is empty.");
+    }
+
+    return interaction.reply(`🎵 Now playing: ${queue.currentTrack.title}`);
   }
 
   // =====================
@@ -257,7 +215,8 @@ client.on("interactionCreate", async (interaction) => {
   // =====================
   if (interaction.commandName === "loop") {
     const queue = player.nodes.get(guildId);
-    if (!queue) return interaction.reply("No queue");
+
+    if (!queue) return interaction.reply("No queue.");
 
     const mode = queue.repeatMode === 0 ? 1 : 0;
     queue.setRepeatMode(mode);
@@ -272,11 +231,12 @@ client.on("interactionCreate", async (interaction) => {
 
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
+
   await registerCommands();
 });
 
 // =========================
-// LOGIN
+// LOGIN SAFETY
 // =========================
 
 if (!TOKEN) throw new Error("Missing DISCORD_TOKEN");
