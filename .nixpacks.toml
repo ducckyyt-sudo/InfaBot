@@ -2,10 +2,7 @@
 nixPkgs = ["nodejs_20", "ffmpeg"]
 
 [phases.install]
-cmds = [
-  "rm -rf node_modules package-lock.json",
-  "npm install --legacy-peer-deps"
-]
+cmds = ["npm install"]
 
-[phases.start]
-cmd = "npm start"
+[start]
+cmd = "node index.js"
