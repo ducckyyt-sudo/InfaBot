@@ -31,7 +31,7 @@ const client = new Client({
 });
 
 // =====================
-// PLAYER (v7 = NO EXTRACTORS NEEDED)
+// PLAYER
 // =====================
 
 const player = new Player(client);
@@ -164,7 +164,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // =====================
-  // PLAY (v7 STABLE)
+  // PLAY (FIXED v7 PROPER NODE)
   // =====================
   if (interaction.commandName === "play") {
     const query = interaction.options.getString("query");
@@ -187,10 +187,13 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // =====================
-  // SKIP
+  // SKIP (FIXED)
   // =====================
   if (interaction.commandName === "skip") {
-    player.nodes.get(guildId)?.skip();
+    const queue = player.nodes.get(interaction.guild);
+    if (!queue) return interaction.reply("❌ Nothing playing.");
+
+    queue.node.skip();
     return interaction.reply("⏭ Skipped");
   }
 
@@ -198,7 +201,10 @@ client.on("interactionCreate", async (interaction) => {
   // PAUSE
   // =====================
   if (interaction.commandName === "pause") {
-    player.nodes.get(guildId)?.pause();
+    const queue = player.nodes.get(interaction.guild);
+    if (!queue) return interaction.reply("❌ Nothing playing.");
+
+    queue.node.pause();
     return interaction.reply("⏸ Paused");
   }
 
@@ -206,7 +212,10 @@ client.on("interactionCreate", async (interaction) => {
   // RESUME
   // =====================
   if (interaction.commandName === "resume") {
-    player.nodes.get(guildId)?.resume();
+    const queue = player.nodes.get(interaction.guild);
+    if (!queue) return interaction.reply("❌ Nothing playing.");
+
+    queue.node.resume();
     return interaction.reply("▶ Resumed");
   }
 
@@ -214,7 +223,10 @@ client.on("interactionCreate", async (interaction) => {
   // STOP
   // =====================
   if (interaction.commandName === "stop") {
-    player.nodes.get(guildId)?.stop();
+    const queue = player.nodes.get(interaction.guild);
+    if (!queue) return interaction.reply("❌ Nothing playing.");
+
+    queue.node.stop();
     return interaction.reply("⏹ Stopped");
   }
 });
