@@ -32,12 +32,10 @@ const client = new Client({
 });
 
 // =====================
-// PLAYER (v7 SAFE MODE)
+// PLAYER
 // =====================
 
 const player = new Player(client);
-
-// IMPORTANT: no extractors = no crash + no weird identifier errors
 
 // =====================
 // STATE
@@ -114,6 +112,7 @@ client.on("interactionCreate", async (interaction) => {
 
   const guildId = interaction.guildId;
 
+  // PING
   if (interaction.commandName === "ping") {
     return interaction.reply(`Ping: ${client.ws.ping}ms`);
   }
@@ -155,7 +154,9 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply("🔓 Unlocked");
   }
 
-  // PLAY (FIXED — WORKS WITH YT / SPOTIFY / SOUNDCLOUD)
+  // =====================
+  // PLAY (FIXED CORE ISSUE)
+  // =====================
   if (interaction.commandName === "play") {
     const query = interaction.options.getString("query");
     const vc = interaction.member.voice.channel;
@@ -166,7 +167,8 @@ client.on("interactionCreate", async (interaction) => {
 
     try {
       const result = await player.play(vc, query, {
-        requestedBy: interaction.user
+        requestedBy: interaction.user,
+        searchEngine: QueryType.AUTO
       });
 
       return interaction.followUp(`▶️ Playing: **${result.track.title}**`);
@@ -176,7 +178,9 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 
-  // SKIP
+  // =====================
+  // SKIP (FIXED SAFE v7)
+  // =====================
   if (interaction.commandName === "skip") {
     const queue = player.nodes.get(interaction.guild);
     if (!queue) return interaction.reply("❌ Nothing playing.");
@@ -214,16 +218,16 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // =====================
-// READY EVENT
+// READY (FIXED DEPRECATION)
 // =====================
 
-client.once("ready", async () => {
+client.once("clientReady", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   await registerCommands();
 });
 
 // =====================
-// LOGIN
+// LOGIN SAFETY
 // =====================
 
 if (!TOKEN) throw new Error("Missing DISCORD_TOKEN");
