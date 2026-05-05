@@ -1,5 +1,5 @@
 // =========================
-// DISCORD BOT (RAILWAY READY + MUSIC)
+// DISCORD BOT (RAILWAY SAFE)
 // =========================
 
 const {
@@ -9,7 +9,13 @@ const {
   Routes
 } = require("discord.js");
 
-const { Player } = require("discord-player");
+// Optional import safety (prevents crash if missing)
+let Player;
+try {
+  Player = require("discord-player").Player;
+} catch (e) {
+  console.log("⚠️ discord-player not installed yet");
+}
 
 // =========================
 // CONFIG
@@ -17,6 +23,7 @@ const { Player } = require("discord-player");
 
 const GUILD_ID = process.env.GUILD_ID;
 const CLIENT_ID = process.env.CLIENT_ID;
+const TOKEN = process.env.DISCORD_TOKEN;
 
 // =========================
 // CLIENT
@@ -29,68 +36,55 @@ const client = new Client({
   ]
 });
 
-// MUSIC PLAYER
-const player = new Player(client);
+// Only create player if installed
+const player = Player ? new Player(client) : null;
 
 // =========================
-// COMMANDS (UPDATED)
+// COMMANDS
 // =========================
 
 const commands = [
-  {
-    name: "play",
-    description: "Play music from YouTube / Spotify / SoundCloud",
-    options: [
-      {
-        name: "query",
-        type: 3,
-        description: "Song name or link",
-        required: true
-      }
-    ]
-  },
+  { name: "ping", description: "Check bot latency" },
+  { name: "play", description: "Play music (YouTube/Spotify/SoundCloud)", options: [
+    {
+      name: "query",
+      type: 3,
+      description: "Song name or link",
+      required: true
+    }
+  ]},
   { name: "skip", description: "Skip song" },
   { name: "pause", description: "Pause music" },
   { name: "resume", description: "Resume music" },
   { name: "stop", description: "Stop music" },
   { name: "queue", description: "Show queue" },
-  {
-    name: "volume",
-    description: "Set volume",
-    options: [
-      {
-        name: "amount",
-        type: 4,
-        required: true
-      }
-    ]
-  },
-  { name: "loop", description: "Toggle loop" },
-  { name: "ping", description: "Check bot latency" }
+  { name: "loop", description: "Toggle loop" }
 ];
 
 // =========================
-// REGISTER COMMANDS (FIXED)
+// SAFE COMMAND REGISTER (NO WIPE)
 // =========================
 
 async function registerCommands() {
-  const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+  if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
+    console.log("❌ Missing env variables");
+    return;
+  }
 
-  console.log("🧹 Clearing old commands...");
+  const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-  await rest.put(
-    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-    { body: [] }
-  );
+  try {
+    console.log("📦 Registering commands...");
 
-  console.log("📦 Registering new commands...");
+    await rest.put(
+      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+      { body: commands }
+    );
 
-  await rest.put(
-    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-    { body: commands }
-  );
-
-  console.log("✅ Commands updated.");
+    console.log("✅ Commands registered.");
+  } catch (err) {
+    console.error("❌ Command error:", err);
+  }
 }
 
 // =========================
@@ -100,93 +94,78 @@ async function registerCommands() {
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
+  // PING
+  if (interaction.commandName === "ping") {
+    return interaction.reply(`Ping: ${client.ws.ping}ms`);
+  }
+
+  // If player not installed, block music commands safely
+  if (!player) {
+    if (["play","skip","pause","resume","stop","queue","loop"].includes(interaction.commandName)) {
+      return interaction.reply("❌ Music system not installed on server.");
+    }
+  }
+
   const guildId = interaction.guildId;
 
-  // 🎵 PLAY
+  // PLAY
   if (interaction.commandName === "play") {
     const query = interaction.options.getString("query");
     const channel = interaction.member.voice.channel;
 
-    if (!channel) {
-      return interaction.reply("❌ Join a voice channel first.");
-    }
+    if (!channel) return interaction.reply("❌ Join a voice channel first.");
 
     await interaction.deferReply();
 
     try {
-      const { track } = await player.play(channel, query, {
-        nodeOptions: {
-          metadata: interaction
-        }
-      });
-
-      return interaction.followUp(`▶️ Playing: **${track.title}**`);
+      const { track } = await player.play(channel, query);
+      return interaction.followUp(`▶️ Playing: ${track.title}`);
     } catch (err) {
       console.error(err);
-      return interaction.followUp("❌ Could not play that.");
+      return interaction.followUp("❌ Failed to play track.");
     }
   }
 
-  // ⏭ SKIP
+  // SKIP
   if (interaction.commandName === "skip") {
     player.nodes.get(guildId)?.node.skip();
     return interaction.reply("⏭ Skipped");
   }
 
-  // ⏸ PAUSE
+  // PAUSE
   if (interaction.commandName === "pause") {
     player.nodes.get(guildId)?.node.pause();
     return interaction.reply("⏸ Paused");
   }
 
-  // ▶ RESUME
+  // RESUME
   if (interaction.commandName === "resume") {
     player.nodes.get(guildId)?.node.resume();
     return interaction.reply("▶ Resumed");
   }
 
-  // ⏹ STOP
+  // STOP
   if (interaction.commandName === "stop") {
     player.nodes.get(guildId)?.node.stop();
     return interaction.reply("⏹ Stopped");
   }
 
-  // 📜 QUEUE
+  // QUEUE
   if (interaction.commandName === "queue") {
     const queue = player.nodes.get(guildId);
-    if (!queue || !queue.currentTrack) {
-      return interaction.reply("Queue is empty.");
-    }
-
-    return interaction.reply(`🎵 Now playing: ${queue.currentTrack.title}`);
+    if (!queue?.currentTrack) return interaction.reply("Queue empty");
+    return interaction.reply(`🎵 Now: ${queue.currentTrack.title}`);
   }
 
-  // 🔊 VOLUME
-  if (interaction.commandName === "volume") {
-    const vol = interaction.options.getInteger("amount");
-    const queue = player.nodes.get(guildId);
-
-    if (!queue) return interaction.reply("No active queue.");
-
-    queue.node.setVolume(vol);
-    return interaction.reply(`🔊 Volume: ${vol}`);
-  }
-
-  // 🔁 LOOP
+  // LOOP
   if (interaction.commandName === "loop") {
     const queue = player.nodes.get(guildId);
-
-    if (!queue) return interaction.reply("No active queue.");
+    if (!queue) return interaction.reply("No queue");
 
     const mode = queue.repeatMode === 0 ? 1 : 0;
     queue.setRepeatMode(mode);
 
     return interaction.reply(mode ? "🔁 Loop ON" : "➡ Loop OFF");
-  }
-
-  // 🏓 PING
-  if (interaction.commandName === "ping") {
-    return interaction.reply(`Ping: ${client.ws.ping}ms`);
   }
 });
 
@@ -196,15 +175,14 @@ client.on("interactionCreate", async (interaction) => {
 
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
+
   await registerCommands();
 });
 
 // =========================
-// SAFETY
+// LOGIN SAFETY
 // =========================
 
-if (!process.env.DISCORD_TOKEN) throw new Error("Missing DISCORD_TOKEN");
-if (!process.env.CLIENT_ID) throw new Error("Missing CLIENT_ID");
-if (!process.env.GUILD_ID) throw new Error("Missing GUILD_ID");
+if (!TOKEN) throw new Error("Missing DISCORD_TOKEN");
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(TOKEN);
