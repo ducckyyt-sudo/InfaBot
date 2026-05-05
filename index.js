@@ -6,6 +6,8 @@ const {
 } = require("discord.js");
 
 const { Player } = require("discord-player");
+const { DefaultExtractors } = require("@discord-player/extractor");
+
 const {
   joinVoiceChannel,
   getVoiceConnection
@@ -31,10 +33,20 @@ const client = new Client({
 });
 
 // =====================
-// PLAYER
+// PLAYER (FIXED)
 // =====================
 
 const player = new Player(client);
+
+// 🔥 REQUIRED FIX: register extractors
+(async () => {
+  try {
+    await player.extractors.register(DefaultExtractors);
+    console.log("🎧 Extractors loaded");
+  } catch (err) {
+    console.error("❌ Extractor error:", err);
+  }
+})();
 
 // =====================
 // STATE
@@ -164,7 +176,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // =====================
-  // PLAY (FIXED v7 PROPER NODE)
+  // PLAY (FIXED)
   // =====================
   if (interaction.commandName === "play") {
     const query = interaction.options.getString("query");
@@ -187,7 +199,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // =====================
-  // SKIP (FIXED)
+  // SKIP (FIXED v7)
   // =====================
   if (interaction.commandName === "skip") {
     const queue = player.nodes.get(interaction.guild);
