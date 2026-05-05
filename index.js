@@ -1,5 +1,5 @@
 // =========================
-// DISCORD BOT (FIXED AUDIO ENGINE)
+// DISCORD BOT (FULL FIXED)
 // =========================
 
 const {
@@ -9,10 +9,7 @@ const {
   Routes
 } = require("discord.js");
 
-const {
-  Player,
-  QueryType
-} = require("discord-player");
+const { Player, QueryType } = require("discord-player");
 
 const {
   joinVoiceChannel,
@@ -28,6 +25,12 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const TOKEN = process.env.DISCORD_TOKEN;
 
 // =========================
+// STATE
+// =========================
+
+let lockedChannelId = null;
+
+// =========================
 // CLIENT
 // =========================
 
@@ -38,14 +41,7 @@ const client = new Client({
   ]
 });
 
-// =========================
-// PLAYER
-// =========================
-
 const player = new Player(client);
-
-// ❌ REMOVED: player.extractors.loadMulti(DefaultExtractors);
-// ✅ FIX: proper init happens AFTER ready event
 
 // =========================
 // COMMANDS
@@ -72,7 +68,12 @@ const commands = [
   { name: "resume", description: "Resume music" },
   { name: "stop", description: "Stop music" },
   { name: "queue", description: "Show queue" },
-  { name: "loop", description: "Toggle loop" }
+  { name: "loop", description: "Toggle loop" },
+
+  { name: "join", description: "Join your voice channel" },
+  { name: "leave", description: "Leave voice channel" },
+  { name: "lockvc", description: "Lock bot to current VC" },
+  { name: "unlockvc", description: "Unlock VC lock" }
 ];
 
 // =========================
@@ -82,14 +83,26 @@ const commands = [
 async function registerCommands() {
   const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-  console.log("📦 Registering commands...");
-
   await rest.put(
     Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
     { body: commands }
   );
 
-  console.log("✅ Commands registered.");
+  console.log("✅ Commands registered");
+}
+
+// =========================
+// VOICE HELPERS
+// =========================
+
+function joinVC(channel, guild) {
+  return joinVoiceChannel({
+    channelId: channel.id,
+    guildId: guild.id,
+    adapterCreator: guild.voiceAdapterCreator,
+    selfDeaf: true,
+    selfMute: false
+  });
 }
 
 // =========================
@@ -101,10 +114,70 @@ client.on("interactionCreate", async (interaction) => {
 
   const guildId = interaction.guildId;
 
+  // =====================
+  // PING
+  // =====================
   if (interaction.commandName === "ping") {
     return interaction.reply(`Ping: ${client.ws.ping}ms`);
   }
 
+  // =====================
+  // JOIN
+  // =====================
+  if (interaction.commandName === "join") {
+    const channel = interaction.member.voice.channel;
+
+    if (!channel) {
+      return interaction.reply("❌ Join a voice channel first.");
+    }
+
+    lockedChannelId = channel.id;
+
+    joinVC(channel, interaction.guild);
+
+    return interaction.reply(`🔊 Joined ${channel.name}`);
+  }
+
+  // =====================
+  // LEAVE
+  // =====================
+  if (interaction.commandName === "leave") {
+    const conn = getVoiceConnection(interaction.guild.id);
+
+    if (!conn) return interaction.reply("❌ Not in a voice channel.");
+
+    conn.destroy();
+    lockedChannelId = null;
+
+    return interaction.reply("👋 Left voice channel");
+  }
+
+  // =====================
+  // LOCK VC
+  // =====================
+  if (interaction.commandName === "lockvc") {
+    const vc = interaction.member.voice.channel;
+
+    if (!vc) {
+      return interaction.reply("❌ Join a VC first.");
+    }
+
+    lockedChannelId = vc.id;
+
+    return interaction.reply(`🔒 Locked to ${vc.name}`);
+  }
+
+  // =====================
+  // UNLOCK VC
+  // =====================
+  if (interaction.commandName === "unlockvc") {
+    lockedChannelId = null;
+    return interaction.reply("🔓 VC unlocked");
+  }
+
+  // =====================
+  // PLAY
+  // =====================
   if (interaction.commandName === "play") {
     const query = interaction.options.getString("query");
     const channel = interaction.member.voice.channel;
@@ -123,41 +196,59 @@ client.on("interactionCreate", async (interaction) => {
 
       return interaction.followUp(`▶️ Playing: **${result.track.title}**`);
     } catch (err) {
-      console.error("PLAY ERROR:", err);
+      console.error(err);
       return interaction.followUp("❌ Failed to play audio.");
     }
   }
 
+  // =====================
+  // SKIP
+  // =====================
   if (interaction.commandName === "skip") {
     player.nodes.get(guildId)?.node.skip();
     return interaction.reply("⏭ Skipped");
   }
 
+  // =====================
+  // PAUSE
+  // =====================
   if (interaction.commandName === "pause") {
     player.nodes.get(guildId)?.node.pause();
     return interaction.reply("⏸ Paused");
   }
 
+  // =====================
+  // RESUME
+  // =====================
   if (interaction.commandName === "resume") {
     player.nodes.get(guildId)?.node.resume();
     return interaction.reply("▶ Resumed");
   }
 
+  // =====================
+  // STOP
+  // =====================
   if (interaction.commandName === "stop") {
     player.nodes.get(guildId)?.node.stop();
     return interaction.reply("⏹ Stopped");
   }
 
+  // =====================
+  // QUEUE
+  // =====================
   if (interaction.commandName === "queue") {
     const queue = player.nodes.get(guildId);
 
     if (!queue?.currentTrack) {
-      return interaction.reply("Queue is empty.");
+      return interaction.reply("Queue empty.");
     }
 
     return interaction.reply(`🎵 Now playing: ${queue.currentTrack.title}`);
   }
 
+  // =====================
+  // LOOP
+  // =====================
   if (interaction.commandName === "loop") {
     const queue = player.nodes.get(guildId);
 
@@ -171,25 +262,16 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // =========================
-// READY EVENT (FIXED PART)
+// READY
 // =========================
 
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
-
-  // 🔥 FIX: correct extractor init for your discord-player version
-  try {
-    player.extractors.registerAll?.();
-    console.log("🎧 Extractors loaded");
-  } catch (e) {
-    console.log("⚠️ Extractors auto-loaded (no manual init needed)");
-  }
-
   await registerCommands();
 });
 
 // =========================
-// LOGIN SAFETY
+// LOGIN
 // =========================
 
 if (!TOKEN) throw new Error("Missing DISCORD_TOKEN");
