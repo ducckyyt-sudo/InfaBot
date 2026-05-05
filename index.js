@@ -9,7 +9,6 @@ const {
   Routes
 } = require("discord.js");
 
-// Optional import safety (prevents crash if missing)
 let Player;
 try {
   Player = require("discord-player").Player;
@@ -26,6 +25,13 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const TOKEN = process.env.DISCORD_TOKEN;
 
 // =========================
+// VC STATE
+// =========================
+
+let lockedChannelId = null;
+let connection = null;
+
+// =========================
 // CLIENT
 // =========================
 
@@ -36,7 +42,6 @@ const client = new Client({
   ]
 });
 
-// Only create player if installed
 const player = Player ? new Player(client) : null;
 
 // =========================
@@ -45,32 +50,51 @@ const player = Player ? new Player(client) : null;
 
 const commands = [
   { name: "ping", description: "Check bot latency" },
-  { name: "play", description: "Play music (YouTube/Spotify/SoundCloud)", options: [
-    {
-      name: "query",
-      type: 3,
-      description: "Song name or link",
-      required: true
-    }
-  ]},
+
+  // MUSIC
+  {
+    name: "play",
+    description: "Play music (YouTube/Spotify/SoundCloud)",
+    options: [
+      {
+        name: "query",
+        type: 3,
+        description: "Song name or link",
+        required: true
+      }
+    ]
+  },
   { name: "skip", description: "Skip song" },
   { name: "pause", description: "Pause music" },
   { name: "resume", description: "Resume music" },
   { name: "stop", description: "Stop music" },
   { name: "queue", description: "Show queue" },
-  { name: "loop", description: "Toggle loop" }
+  { name: "loop", description: "Toggle loop" },
+
+  // VC CONTROL
+  {
+    name: "join",
+    description: "Join a voice channel",
+    options: [
+      {
+        name: "channel",
+        type: 7,
+        description: "Voice channel",
+        required: true,
+        channel_types: [2]
+      }
+    ]
+  },
+  { name: "leave", description: "Leave voice channel" },
+  { name: "lockvc", description: "Lock bot to current voice channel" },
+  { name: "unlockvc", description: "Unlock voice lock" }
 ];
 
 // =========================
-// SAFE COMMAND REGISTER (NO WIPE)
+// REGISTER COMMANDS
 // =========================
 
 async function registerCommands() {
-  if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
-    console.log("❌ Missing env variables");
-    return;
-  }
-
   const rest = new REST({ version: "10" }).setToken(TOKEN);
 
   try {
@@ -83,7 +107,7 @@ async function registerCommands() {
 
     console.log("✅ Commands registered.");
   } catch (err) {
-    console.error("❌ Command error:", err);
+    console.error(err);
   }
 }
 
@@ -94,21 +118,86 @@ async function registerCommands() {
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
+  const guildId = interaction.guildId;
+
+  // =====================
   // PING
+  // =====================
   if (interaction.commandName === "ping") {
     return interaction.reply(`Ping: ${client.ws.ping}ms`);
   }
 
-  // If player not installed, block music commands safely
+  // =====================
+  // JOIN VC
+  // =====================
+  if (interaction.commandName === "join") {
+    const channel = interaction.options.getChannel("channel");
+
+    if (!channel || channel.type !== 2) {
+      return interaction.reply("❌ Invalid voice channel.");
+    }
+
+    lockedChannelId = channel.id;
+
+    const { joinVoiceChannel } = require("@discordjs/voice");
+
+    connection = joinVoiceChannel({
+      channelId: channel.id,
+      guildId: interaction.guild.id,
+      adapterCreator: interaction.guild.voiceAdapterCreator
+    });
+
+    return interaction.reply(`🔊 Joined ${channel.name}`);
+  }
+
+  // =====================
+  // LEAVE VC
+  // =====================
+  if (interaction.commandName === "leave") {
+    const { getVoiceConnection } = require("@discordjs/voice");
+
+    const conn = getVoiceConnection(interaction.guild.id);
+    if (!conn) return interaction.reply("❌ Not in VC");
+
+    conn.destroy();
+    connection = null;
+
+    return interaction.reply("👋 Left voice channel");
+  }
+
+  // =====================
+  // LOCK VC
+  // =====================
+  if (interaction.commandName === "lockvc") {
+    const vc = interaction.member.voice.channel;
+
+    if (!vc) return interaction.reply("❌ Join a voice channel first.");
+
+    lockedChannelId = vc.id;
+
+    return interaction.reply(`🔒 Locked to ${vc.name}`);
+  }
+
+  // =====================
+  // UNLOCK VC
+  // =====================
+  if (interaction.commandName === "unlockvc") {
+    lockedChannelId = null;
+    return interaction.reply("🔓 Voice lock removed");
+  }
+
+  // =====================
+  // MUSIC GUARD
+  // =====================
   if (!player) {
     if (["play","skip","pause","resume","stop","queue","loop"].includes(interaction.commandName)) {
-      return interaction.reply("❌ Music system not installed on server.");
+      return interaction.reply("❌ Music system not installed.");
     }
   }
 
-  const guildId = interaction.guildId;
-
+  // =====================
   // PLAY
+  // =====================
   if (interaction.commandName === "play") {
     const query = interaction.options.getString("query");
     const channel = interaction.member.voice.channel;
@@ -117,47 +206,55 @@ client.on("interactionCreate", async (interaction) => {
 
     await interaction.deferReply();
 
-    try {
-      const { track } = await player.play(channel, query);
-      return interaction.followUp(`▶️ Playing: ${track.title}`);
-    } catch (err) {
-      console.error(err);
-      return interaction.followUp("❌ Failed to play track.");
-    }
+    const { track } = await player.play(channel, query);
+    return interaction.followUp(`▶️ Playing: ${track.title}`);
   }
 
+  // =====================
   // SKIP
+  // =====================
   if (interaction.commandName === "skip") {
     player.nodes.get(guildId)?.node.skip();
     return interaction.reply("⏭ Skipped");
   }
 
+  // =====================
   // PAUSE
+  // =====================
   if (interaction.commandName === "pause") {
     player.nodes.get(guildId)?.node.pause();
     return interaction.reply("⏸ Paused");
   }
 
+  // =====================
   // RESUME
+  // =====================
   if (interaction.commandName === "resume") {
     player.nodes.get(guildId)?.node.resume();
     return interaction.reply("▶ Resumed");
   }
 
+  // =====================
   // STOP
+  // =====================
   if (interaction.commandName === "stop") {
     player.nodes.get(guildId)?.node.stop();
     return interaction.reply("⏹ Stopped");
   }
 
+  // =====================
   // QUEUE
+  // =====================
   if (interaction.commandName === "queue") {
     const queue = player.nodes.get(guildId);
     if (!queue?.currentTrack) return interaction.reply("Queue empty");
+
     return interaction.reply(`🎵 Now: ${queue.currentTrack.title}`);
   }
 
+  // =====================
   // LOOP
+  // =====================
   if (interaction.commandName === "loop") {
     const queue = player.nodes.get(guildId);
     if (!queue) return interaction.reply("No queue");
@@ -175,12 +272,11 @@ client.on("interactionCreate", async (interaction) => {
 
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
-
   await registerCommands();
 });
 
 // =========================
-// LOGIN SAFETY
+// LOGIN
 // =========================
 
 if (!TOKEN) throw new Error("Missing DISCORD_TOKEN");
