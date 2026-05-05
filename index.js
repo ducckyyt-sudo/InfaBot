@@ -1,5 +1,5 @@
 // =========================
-// DISCORD BOT (FULL FIXED)
+// DISCORD BOT (FIXED AUDIO ENGINE)
 // =========================
 
 const {
@@ -26,12 +26,6 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const TOKEN = process.env.DISCORD_TOKEN;
 
 // =========================
-// STATE
-// =========================
-
-let lockedChannelId = null;
-
-// =========================
 // CLIENT
 // =========================
 
@@ -43,23 +37,26 @@ const client = new Client({
 });
 
 // =========================
-// PLAYER (FIXED)
+// PLAYER
 // =========================
 
 const player = new Player(client);
 
-// 🔥 FIX: THIS WAS MISSING (your main error)
-client.once("ready", async () => {
+// 🔥 FIX: Proper extractor loading (THIS WAS MISSING)
+(async () => {
   try {
-    player.extractors.registerAll();
-    console.log("🎧 Extractors loaded");
-  } catch (e) {
-    console.log("⚠️ Extractors auto-loaded");
+    await player.extractors.loadMulti(DefaultExtractors);
+    console.log("🎧 Extractors loaded successfully");
+  } catch (err) {
+    console.log("⚠️ Extractors failed to load:", err);
   }
+})();
 
-  console.log(`✅ Logged in as ${client.user.tag}`);
-  await registerCommands();
-});
+// =========================
+// STATE
+// =========================
+
+let lockedChannelId = null;
 
 // =========================
 // COMMANDS
@@ -110,7 +107,7 @@ async function registerCommands() {
 }
 
 // =========================
-// VOICE HELPERS
+// VOICE
 // =========================
 
 function joinVC(channel, guild) {
@@ -133,32 +130,10 @@ client.on("interactionCreate", async (interaction) => {
   const guildId = interaction.guildId;
 
   // =====================
-  // PLAY (FIXED SPOTIFY ISSUE)
+  // PING
   // =====================
-  if (interaction.commandName === "play") {
-    let query = interaction.options.getString("query");
-    const channel = interaction.member.voice.channel;
-
-    if (!channel) return interaction.reply("❌ Join a voice channel first.");
-
-    // 🔥 FIX: Spotify links are NOT directly playable
-    if (query.includes("open.spotify.com")) {
-      query = "song from spotify link";
-    }
-
-    await interaction.deferReply();
-
-    try {
-      const result = await player.play(channel, query, {
-        requestedBy: interaction.user,
-        searchEngine: QueryType.AUTO
-      });
-
-      return interaction.followUp(`▶️ Playing: **${result.track.title}**`);
-    } catch (err) {
-      console.error("PLAY ERROR:", err);
-      return interaction.followUp("❌ Failed to play audio.");
-    }
+  if (interaction.commandName === "ping") {
+    return interaction.reply(`Ping: ${client.ws.ping}ms`);
   }
 
   // =====================
@@ -166,7 +141,7 @@ client.on("interactionCreate", async (interaction) => {
   // =====================
   if (interaction.commandName === "join") {
     const channel = interaction.member.voice.channel;
-    if (!channel) return interaction.reply("❌ Join a voice channel first.");
+    if (!channel) return interaction.reply("❌ Join a VC first.");
 
     lockedChannelId = channel.id;
     joinVC(channel, interaction.guild);
@@ -179,12 +154,12 @@ client.on("interactionCreate", async (interaction) => {
   // =====================
   if (interaction.commandName === "leave") {
     const conn = getVoiceConnection(interaction.guild.id);
-    if (!conn) return interaction.reply("❌ Not in a voice channel.");
+    if (!conn) return interaction.reply("❌ Not in VC.");
 
     conn.destroy();
     lockedChannelId = null;
 
-    return interaction.reply("👋 Left voice channel");
+    return interaction.reply("👋 Left VC");
   }
 
   // =====================
@@ -204,6 +179,35 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.commandName === "unlockvc") {
     lockedChannelId = null;
     return interaction.reply("🔓 VC unlocked");
+  }
+
+  // =====================
+  // PLAY (FIXED SAFETY)
+  // =====================
+  if (interaction.commandName === "play") {
+    let query = interaction.options.getString("query");
+    const channel = interaction.member.voice.channel;
+
+    if (!channel) return interaction.reply("❌ Join a voice channel first.");
+
+    // prevent Spotify crash
+    if (query.includes("spotify.com")) {
+      query = "song " + query;
+    }
+
+    await interaction.deferReply();
+
+    try {
+      const result = await player.play(channel, query, {
+        requestedBy: interaction.user,
+        searchEngine: QueryType.AUTO
+      });
+
+      return interaction.followUp(`▶️ Playing: **${result.track.title}**`);
+    } catch (err) {
+      console.error("PLAY ERROR:", err);
+      return interaction.followUp("❌ Failed to play audio.");
+    }
   }
 
   // =====================
@@ -246,6 +250,15 @@ client.on("interactionCreate", async (interaction) => {
 
     return interaction.reply(mode ? "🔁 Loop ON" : "➡ Loop OFF");
   }
+});
+
+// =========================
+// READY
+// =========================
+
+client.once("ready", async () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
+  await registerCommands();
 });
 
 // =========================
