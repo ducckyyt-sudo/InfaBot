@@ -33,20 +33,10 @@ const client = new Client({
 });
 
 // =====================
-// PLAYER (FIXED)
+// PLAYER
 // =====================
 
 const player = new Player(client);
-
-// 🔥 REQUIRED FIX: register extractors
-(async () => {
-  try {
-    await player.extractors.register(DefaultExtractors);
-    console.log("🎧 Extractors loaded");
-  } catch (err) {
-    console.error("❌ Extractor error:", err);
-  }
-})();
 
 // =====================
 // STATE
@@ -115,6 +105,23 @@ function joinVC(channel, guild) {
 }
 
 // =====================
+// 🔥 FIXED: READY EVENT (IMPORTANT)
+// =====================
+
+client.once("ready", async () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
+
+  try {
+    await player.extractors.register(DefaultExtractors);
+    console.log("🎧 Extractors loaded successfully");
+  } catch (err) {
+    console.error("❌ Extractor load failed:", err);
+  }
+
+  await registerCommands();
+});
+
+// =====================
 // INTERACTIONS
 // =====================
 
@@ -176,7 +183,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // =====================
-  // PLAY (FIXED)
+  // PLAY
   // =====================
   if (interaction.commandName === "play") {
     const query = interaction.options.getString("query");
@@ -199,7 +206,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // =====================
-  // SKIP (FIXED v7)
+  // SKIP
   // =====================
   if (interaction.commandName === "skip") {
     const queue = player.nodes.get(interaction.guild);
@@ -241,15 +248,6 @@ client.on("interactionCreate", async (interaction) => {
     queue.node.stop();
     return interaction.reply("⏹ Stopped");
   }
-});
-
-// =====================
-// READY
-// =====================
-
-client.once("ready", async () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-  await registerCommands();
 });
 
 // =====================
